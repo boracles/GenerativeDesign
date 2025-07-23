@@ -89,8 +89,18 @@
                     const h = (data[i] / 255) * HEIGHT_MUL;          // 0~1 → 높이
                     pos.setY(i, h);
                     // 간단 그라데이션 : 낮은 곳 초록↔높은 곳 회백
-                    const g = data[i] / 255;
-                    col.setXYZ(i, 0.2 + g * 0.3, 0.6 + g * 0.2, 0.2 + g * 0.3);
+                    const gNorm = data[i] / 255;      // 0 ~ 1
+                    let r, g, b;
+                    if (gNorm < 0.3) {          // 낮은 곳: 흙빛 갈색
+                        r = 0.46; g = 0.32; b = 0.17;
+                    } else if (gNorm < 0.6) {   // 중간: 초록
+                        r = 0.10 + gNorm * 0.2;
+                        g = 0.40 + gNorm * 0.4;
+                        b = 0.10;
+                    } else {                    // 높은 곳: 암회색
+                        r = g = b = 0.50 + gNorm * 0.3;
+                    }
+                    col.setXYZ(i, r, g, b);
                 }
             }
             pos.needsUpdate = col.needsUpdate = true;
