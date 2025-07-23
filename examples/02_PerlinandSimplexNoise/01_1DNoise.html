@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>1‑D Simplex Noise (Three.js)</title>
+  <title>1D Simplex Noise</title>
 
   <!--────────────────── 기본 스타일 ──────────────────-->
   <style>
@@ -60,13 +60,19 @@
        -------------------------------------------------- */
     const simplex = new SimplexNoise(); // seed 없이 기본 시드 사용 (내부에서 Math.random을 그대로 사용 → 실행할 때마다 무작위로 다른 시드가 잡힘)
     const scale = 0.008;                // 입력 좌표에 곱해 줄 스케일 → 주파수 조절 (파형이 화면 가로 방향으로 얼마나 '촘촘하게' 반복되느냐)
+    /*
+      1. Simplex Noise는 좌표 1 칸이 바뀔 때마다 일정 패턴을 생성하도록 설계돼 있다.
+      2. x에 0.008을 곱하면, 화면에서 125 px(= 1 / 0.008) 정도 이동해야 내부적으로 “좌표 1칸” 이동과 같아진다.
+        → 주기가 125 px 정도로 길어져 곡선이 완만해짐.
+      3. 반대로 0.05를 곱하면 화면 20 px만 움직여도 좌표 1칸 이동이 되어, 짧은 구간에서 패턴이 여러 번 반복된다.
+    */
 
-    /**
-     * 1‑D Simplex Noise 래퍼
-     * @param {number} x – “샘플 번호” 같은 1‑D 좌표
-     * @param {number} t – 시간 인덱스(애니메이션용, 기본 0)
-     * @returns {number} -1 ~ 1 사이의 실수 (스칼라 값)
-     */
+    /*
+     <1‑D Simplex Noise 래퍼: SimplexNoise.noise() 를 1차원용으로 감싼 “포장 함수">
+      param {number} x – “샘플 번호” 같은 1‑D 좌표
+      param {number} t – 시간 인덱스(애니메이션용, 기본 0)
+      returns {number} -1 ~ 1 사이의 실수 (스칼라 값)
+    */
     function noise1d(x, t = 0) {
       // SimplexNoise.noise()는 2D 입력을 받으므로 (x, t)를 투입
       return simplex.noise(x * scale, t); // 주파수가 높을수록 패턴이 촘촘
@@ -75,25 +81,25 @@
     /* --------------------------------------------------
        4. 라인(Line) 지오메트리 생성
        -------------------------------------------------- */
-    const NUM = 1024;                    // 버텍스(샘플) 갯수
-    const verts = new Float32Array(NUM * 3); // (x, y, z) * NUM
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    const NUM = 1024;                                                   // 버텍스(샘플) 갯수 설정
+    const verts = new Float32Array(NUM * 3);                            // (x, y, z) * NUM
+    const geom = new THREE.BufferGeometry();                            // 버퍼 지오메트리(GPU로 보낼 순서 데이터 상자) 생성
+    geom.setAttribute('position', new THREE.BufferAttribute(verts, 3)); // 버텍스 배열을 position 속성으로 등록 
 
     // 검은색 선(LineBasicMaterial)으로 표현
     const line = new THREE.Line(
       geom,
       new THREE.LineBasicMaterial({ color: 0x000000 })
-    );
-    scene.add(line);
+    );                                                                  // 라인 객체 생성
+    scene.add(line);                                                    // 라인을 scene에 추가
 
     /* --------------------------------------------------
        5. 애니메이션 루프
        -------------------------------------------------- */
-    let t = 0; // 시간 파라미터 – 프레임마다 조금씩 증가시킴
+    let t = 0;            // 시간 파라미터 – 프레임마다 조금씩 증가시킴
 
     function animate() {
-      t += 0.002; // 애니메이션 속도 조절 (값이 클수록 더 빠르게 흐름)
+      t += 0.002;         // 애니메이션 속도 조절 (값이 클수록 더 빠르게 흐름)
 
       // 0~NUM‑1 버텍스를 순회하며 (x, y, z) 좌표 갱신
       for (let i = 0; i < NUM; i++) {

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <title>2‑D Simplex FBM Cloud (GPU only)</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            /* 기본 여백 제거 */
+            height: 100%;
+            /* 화면 꽉 차게 */
+            overflow: hidden;
+            /* 스크롤 막기 */
+            background: #000;
+            /* 검은 배경 */
+        }
+    </style>
+</head>
+
+<body>
+    <script type="module">
+        /* ─────────────────────────────────────────────
+           0. Three.js 모듈 로드
+           ───────────────────────────────────────────── */
+        import * as THREE from 'https://unpkg.com/three@0.165.0/build/three.module.js';
+
+        /* ─────────────────────────────────────────────
+           1. 렌더러 / 씬 / 카메라 설정
+           ───────────────────────────────────────────── */
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(innerWidth, innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(
+            innerWidth / -2, innerWidth / 2,   // L  R
+            innerHeight / 2, innerHeight / -2,// T  B
+            0.1, 10                            // near / far
+        );
+        camera.position.z = 5;               // 살짝 뒤로
+
+        /* ─────────────────────────────────────────────
+           2. GPU 셰이더(Material) 정의
+           ───────────────────────────────────────────── */
+        const shaderMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uTime: { value: 0.0 },      // 애니메이션용 시간
+                uScale: { value: 6.0 }      // 패턴 크기(작게 = 덩어리 큼)
+            },
+            vertexShader: /* glsl */`
+    varying vec2 vUv;                       // 평면의 UV 좌표 전달
+    void main(){
+      vUv = uv;
+      gl_Position = projectionMatrix
+                  * modelViewMatrix
+                  * vec4(position, 1.0);
+    }`,
+            fragmentShader: /* glsl */`
+    precision highp float;
+    uniform float uTime;
+    uniform float uScale;
+    varying vec2  vUv;
+
+    /* ---------- 2‑D Simplex Noise ---------- */
+    vec3 mod289(vec3 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
+    vec2 mod289(vec2 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
+    vec3 permute(vec3 x){ return mod289((x*34.0+1.0)*x); }
+    float snoise(vec2 v){
+      const vec4 C = vec4(0.211324865, 0.366025404, -0.577350269, 0.0243902439);
+      vec2 i  = floor(v + dot(v, C.yy));
+      vec2 x0 = v - i + dot(i, C.xx);
+      vec2 i1 = (x0.x > x0.y) ? vec2(1.0,0.0) : vec2(0.0,1.0);
+      vec4 x12 = x0.xyxy + C.xxzz;
+      x12.xy -= i1;
+      i = mod289(i);
+      vec3 p = permute( permute(i.y + vec3(0.0,i1.y,1.0))
+                             + i.x + vec3(0.0,i1.x,1.0) );
+      vec3 m = max(0.5 - vec3(dot(x0,x0),
+                              dot(x12.xy,x12.xy),
+                              dot(x12.zw,x12.zw)), 0.0);
+      m = m*m; m = m*m;
+      vec3 x = 2.0 * fract(p * C.www) - 1.0;
+      vec3 h = abs(x) - 0.5;
+      vec3 ox = floor(x + 0.5);
+      vec3 a0 = x - ox;
+      m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+      vec3 g;
+      g.x  = a0.x * x0.x + h.x * x0.y;
+      g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+      return 130.0 * dot(m, g);
+    }
+
+    /* ---------- Fractal Brownian Motion (6 옥타브) ---------- */
+    float fbm(vec2 p){
+      float sum = 0.0;
+      float amp = 0.5;
+      for(int i=0;i<6;i++){
+        sum += amp * snoise(p);
+        p   *= 2.0;
+        amp *= 0.55;
+      }
+      return sum;
+    }
+
+    void main(){
+        vec2 uv = vUv * uScale;                 // 패턴 크기 조절
+        float n = fbm(uv + uTime * 0.1);        // 시간 오프셋으로 흐름
+        float g = pow(n*0.5 + 0.5, 0.8);        // γ=0.8 (0.6~1.0 사이에서 시험)
+
+      gl_FragColor = vec4(vec3(g), 1.0);   // 흑백 출력
+    }`
+        });
+
+        /* ─────────────────────────────────────────────
+           3. 평면 메쉬(화면 전면) 생성
+           ───────────────────────────────────────────── */
+        const plane = new THREE.Mesh(
+            new THREE.PlaneGeometry(innerWidth, innerHeight),
+            shaderMat
+        );
+        scene.add(plane);
+
+        /* ─────────────────────────────────────────────
+           4. 애니메이션 루프 – 시간 uniform만 증가
+           ───────────────────────────────────────────── */
+        const clock = new THREE.Clock();
+        function animate() {
+            shaderMat.uniforms.uTime.value += clock.getDelta();
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        /* ─────────────────────────────────────────────
+           5. 창 크기 변경 대응
+           ───────────────────────────────────────────── */
+        addEventListener('resize', () => {
+            renderer.setSize(innerWidth, innerHeight);
+
+            /* 정사영 카메라 투영 영역 재설정 */
+            camera.left = innerWidth / -2;
+            camera.right = innerWidth / 2;
+            camera.top = innerHeight / 2;
+            camera.bottom = innerHeight / -2;
+            camera.updateProjectionMatrix();
+
+            /* 평면 메쉬를 새 창 크기에 맞게 스케일 */
+            plane.scale.set(
+                innerWidth / plane.geometry.parameters.width,
+                innerHeight / plane.geometry.parameters.height,
+                1
+            );
+        });
+    </script>
+</body>
+
+</html>
