@@ -3,70 +3,129 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>1-D Simplex Noise (Three.js)</title>
+  <title>1‑D Simplex Noise (Three.js)</title>
+
+  <!--────────────────── 기본 스타일 ──────────────────-->
   <style>
     html,
     body {
       margin: 0;
+      /* 브라우저 기본 여백 제거 */
       height: 100%;
+      /* <body>가 뷰포트 전부 채우도록 */
       overflow: hidden;
-      background: #fff
+      /* 스크롤 막기 – 캔버스 하나만 보이도록 */
+      background: #fff;
+      /* 배경색 흰색 */
     }
   </style>
 </head>
 
 <body>
+  <!--────────────────── 스크립트: 모듈 형식 ──────────────────-->
   <script type="module">
+    /* --------------------------------------------------
+       0. 모듈 가져오기
+       -------------------------------------------------- */
     import * as THREE from 'https://unpkg.com/three@0.165.0/build/three.module.js';
+    // SimplexNoise 클래스: Perlin 노이즈보다 개선된 2~4D 노이즈 생성
     import { SimplexNoise } from 'https://unpkg.com/three@0.165.0/examples/jsm/math/SimplexNoise.js';
 
-    /* 기본 세팅 */
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(innerWidth, innerHeight);
-    renderer.setClearColor(0xffffff, 1);
-    document.body.appendChild(renderer.domElement);
+    /* --------------------------------------------------
+       1. 렌더러(renderer) 초기화
+       -------------------------------------------------- */
+    const renderer = new THREE.WebGLRenderer({ antialias: true }); // 안티앨리어싱으로 선 계단 현상 완화
+    renderer.setSize(innerWidth, innerHeight);                     // 캔버스 크기를 윈도우 크기와 동일하게
+    renderer.setClearColor(0xffffff, 1);                           // 매 프레임 지우는 색 = 흰색
+    document.body.appendChild(renderer.domElement);                // <body>에 캔버스 삽입
 
+    /* --------------------------------------------------
+       2. 장면(scene)·카메라(camera) 설정
+       -------------------------------------------------- */
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(
-      innerWidth / -2, innerWidth / 2, innerHeight / 2, innerHeight / -2, 0.1, 10);
-    camera.position.z = 5;
 
-    /* 1-D Noise 함수 */
-    const simplex = new SimplexNoise();   // seed 없이 생성
-    const scale = 0.008;                // 주파수
+    // 정사영 카메라: 2D 그래프처럼 왜곡 없는 투영
+    const camera = new THREE.OrthographicCamera(
+      innerWidth / -2,  // left
+      innerWidth / 2,   // right
+      innerHeight / 2,  // top
+      innerHeight / -2, // bottom
+      0.1,              // near
+      10                // far
+    );
+    camera.position.z = 5; // 카메라를 Z축 + 방향으로 약간 떼기
+
+    /* --------------------------------------------------
+       3. 1‑D 노이즈 함수 정의
+       -------------------------------------------------- */
+    const simplex = new SimplexNoise(); // seed 없이 기본 시드 사용 (내부에서 Math.random을 그대로 사용 → 실행할 때마다 무작위로 다른 시드가 잡힘)
+    const scale = 0.008;                // 입력 좌표에 곱해 줄 스케일 → 주파수 조절 (파형이 화면 가로 방향으로 얼마나 '촘촘하게' 반복되느냐)
+
+    /**
+     * 1‑D Simplex Noise 래퍼
+     * @param {number} x – “샘플 번호” 같은 1‑D 좌표
+     * @param {number} t – 시간 인덱스(애니메이션용, 기본 0)
+     * @returns {number} -1 ~ 1 사이의 실수 (스칼라 값)
+     */
     function noise1d(x, t = 0) {
-      return simplex.noise(x * scale, t); // -1 ~ 1
+      // SimplexNoise.noise()는 2D 입력을 받으므로 (x, t)를 투입
+      return simplex.noise(x * scale, t); // 주파수가 높을수록 패턴이 촘촘
     }
 
-    /* 라인 지오메트리 */
-    const NUM = 1024;
-    const verts = new Float32Array(NUM * 3);
+    /* --------------------------------------------------
+       4. 라인(Line) 지오메트리 생성
+       -------------------------------------------------- */
+    const NUM = 1024;                    // 버텍스(샘플) 갯수
+    const verts = new Float32Array(NUM * 3); // (x, y, z) * NUM
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-    const line = new THREE.Line(geom,
-      new THREE.LineBasicMaterial({ color: 0x000000 }));
+
+    // 검은색 선(LineBasicMaterial)으로 표현
+    const line = new THREE.Line(
+      geom,
+      new THREE.LineBasicMaterial({ color: 0x000000 })
+    );
     scene.add(line);
 
-    /* 애니메이션 */
-    let t = 0;
+    /* --------------------------------------------------
+       5. 애니메이션 루프
+       -------------------------------------------------- */
+    let t = 0; // 시간 파라미터 – 프레임마다 조금씩 증가시킴
+
     function animate() {
-      t += 0.002; // 매 프레임마다 증가
+      t += 0.002; // 애니메이션 속도 조절 (값이 클수록 더 빠르게 흐름)
+
+      // 0~NUM‑1 버텍스를 순회하며 (x, y, z) 좌표 갱신
       for (let i = 0; i < NUM; i++) {
-        const x = (i / (NUM - 1) - 0.5) * innerWidth; // 화면 가로
-        const y = noise1d(i, t) * 200;                // 진폭
+        // (1) x 좌표: 왼쪽(-) → 오른쪽(+)으로 균등 분포
+        const x = (i / (NUM - 1) - 0.5) * innerWidth;
+
+        // (2) y 좌표: 1‑D 노이즈 값을 진폭 200px로 스케일
+        const y = noise1d(i, t) * 200;
+
+        // (3) z 좌표: 2D 평면이므로 0
         verts[i * 3] = x;
         verts[i * 3 + 1] = y;
         verts[i * 3 + 2] = 0;
       }
+
+      // 버텍스 데이터를 변경했으니 GPU 버퍼 업데이트 플래그
       geom.attributes.position.needsUpdate = true;
+
+      // (4) 장면 렌더링 → 다음 프레임 예약
       renderer.render(scene, camera);
       requestAnimationFrame(animate);
     }
-    animate();
+    animate(); // 첫 프레임 호출
 
-    /* 리사이즈 */
+    /* --------------------------------------------------
+       6. 창 크기 변경 대응(Responsive)
+       -------------------------------------------------- */
     addEventListener('resize', () => {
+      // ① 캔버스 크기 재조정
       renderer.setSize(innerWidth, innerHeight);
+
+      // ② 정사영 카메라 투영 행렬 업데이트
       camera.left = innerWidth / -2;
       camera.right = innerWidth / 2;
       camera.top = innerHeight / 2;
