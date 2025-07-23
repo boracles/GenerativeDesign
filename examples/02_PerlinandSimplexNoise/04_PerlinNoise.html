@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <title>2D → 3D Perlin Noise</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden
+        }
+    </style>
+</head>
+
+<body>
+    <script type="module">
+        /* ────────── 0. 의존 라이브러리 ────────── */
+        import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+        import { ImprovedNoise } from 'https://unpkg.com/three@0.160.0/examples/jsm/math/ImprovedNoise.js';
+
+        /* ────────── 1. 공통 세팅 ────────── */
+        const SIZE = 256;    // 노이즈 샘플 그리드(텍스처 & 지형 세그먼트)
+        const SCALE = 0.06;   // 노이즈 주파수
+        const HEIGHT_MUL = 20;     // 3D 높이 진폭
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 1000);
+        camera.position.set(0, 120, 180);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(innerWidth, innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        /* ────────── 2. ① 2D 노이즈 텍스처 만들기 ────────── */
+        const noise = new ImprovedNoise();
+        const data = new Uint8Array(SIZE * SIZE);   // 0‑255 그레이스케일
+        for (let y = 0; y < SIZE; y++) {
+            for (let x = 0; x < SIZE; x++) {
+                const v = noise.noise(x * SCALE, 0, y * SCALE); // −1 ~ 1
+                data[y * SIZE + x] = (v * .5 + .5) * 255;         // 0 ~ 255
+            }
+        }
+        const texture = new THREE.DataTexture(data, SIZE, SIZE, THREE.RedFormat);
+        texture.needsUpdate = true;
+
+        /* ────────── 3. 평면 메시(2D 뷰) ────────── */
+        const planeGeo = new THREE.PlaneGeometry(200, 200);    // 세그먼트 없이 ‘완전 평면’
+        planeGeo.rotateX(-Math.PI / 2);
+        const planeMat = new THREE.ShaderMaterial({
+            uniforms: { map: { value: texture } },
+            vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
+    }`,
+            fragmentShader: /* glsl */`
+    uniform sampler2D map;
+    varying vec2 vUv;
+    void main() {
+      float g = texture2D(map, vUv).r;   // R → 그레이
+      gl_FragColor = vec4(vec3(g), 1.0); // R=G=B
+    }`
+        });
+        const plane = new THREE.Mesh(planeGeo, planeMat);
+        scene.add(plane);
+
+        /* ────────── 4. 3D 지형용 메시 준비만 해두기 ────────── */
+        const terrainGeo = new THREE.PlaneGeometry(200, 200, SIZE - 1, SIZE - 1); // 세그먼트 = 샘플 수
+        terrainGeo.rotateX(-Math.PI / 2);
+        const colors = new Float32Array(SIZE * SIZE * 3);       // 정점 컬러(고도별)
+        terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        const terrainMat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            flatShading: false
+        });
+        const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+        terrain.visible = false;   // 처음엔 숨김
+        scene.add(terrain);
+
+        /* ────────── 5. 노이즈 → 지형 높이·색 매핑 ────────── */
+        function buildTerrain() {
+            const pos = terrainGeo.attributes.position;
+            const col = terrainGeo.attributes.color;
+            for (let y = 0; y < SIZE; y++) {
+                for (let x = 0; x < SIZE; x++) {
+                    const i = y * SIZE + x;
+                    const h = (data[i] / 255) * HEIGHT_MUL;          // 0~1 → 높이
+                    pos.setY(i, h);
+                    // 간단 그라데이션 : 낮은 곳 초록↔높은 곳 회백
+                    const g = data[i] / 255;
+                    col.setXYZ(i, 0.2 + g * 0.3, 0.6 + g * 0.2, 0.2 + g * 0.3);
+                }
+            }
+            pos.needsUpdate = col.needsUpdate = true;
+            terrainGeo.computeVertexNormals();
+        }
+
+        /* ────────── 6. 조명 (3D용) ────────── */
+        const dir = new THREE.DirectionalLight(0xffffff, 1);
+        dir.position.set(30, 60, 40);
+        scene.add(dir);
+
+        /* ────────── 7. 반응형 캔버스 ────────── */
+        addEventListener('resize', () => {
+            camera.aspect = innerWidth / innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(innerWidth, innerHeight);
+        });
+
+        /* ────────── 8. 키보드 T : 2D ⇄ 3D 토글 ────────── */
+        let isTerrain = false;
+        addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 't') {
+                isTerrain = !isTerrain;
+                plane.visible = !isTerrain;
+                terrain.visible = isTerrain;
+                if (isTerrain) buildTerrain();
+            }
+        });
+
+        /* ────────── 9. 루프 ────────── */
+        (function animate() {
+            requestAnimationFrame(animate);
+            if (isTerrain) terrain.rotation.y += 0.0009;
+            renderer.render(scene, camera);
+        })();
+    </script>
+</body>
+
+</html>
